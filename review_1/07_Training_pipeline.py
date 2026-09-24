@@ -85,7 +85,7 @@ for epoch in range(epochs):
 
 model.eval()
 
-train_loss = 0
+test_loss = 0
 correct = 0
 total = 0
 

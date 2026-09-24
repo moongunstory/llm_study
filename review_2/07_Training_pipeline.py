@@ -9,12 +9,6 @@ x = torch.randn(1000, 2)
 
 y = (x[:, 0] + x[:, 1] > 0).float().unsqueeze(1)
 
-# 전체 데이터 1000개
-# Train 700개
-# Validation 150개
-# Test 150개
-# 1. 학습 2. 하이퍼 파라미터 수정 3. 테스트
-
 train_x, temp_x, train_y, temp_y = train_test_split(
     x,
     y,
@@ -105,10 +99,10 @@ for epoch in range(epochs):
 
     if (epoch + 1) % 10 == 0:
         print(
-            f"Epoch {epoch + 1:3d}"
-            f"Train Loss: {train_loss:.4f} | "
-            f"Val Loss: {val_loss:.4f} | "
-            f"Val Accuracy: {val_accuracy:.4f}"
+            f"횟수 {epoch + 1:3d} | "
+            f"학습 손실: {train_loss:.4f} | "
+            f"검증 손실: {val_loss:.4f} | "
+            f"검증 정확도: {val_accuracy:.4f}"
         )
 
 model.eval()
@@ -126,19 +120,10 @@ with torch.no_grad():
         correct += (predicted_class == batch_y).sum().item()
         total += batch_y.size(0)
 
-        for i in range(batch_x.size(0)):
-            x1, x2 = batch_x[i].tolist()
-            print(
-                f"x1={x1:+.3f} x2={x2:+.3f} | 합={x1 + x2:+.3f} | "
-                f"정답={int(batch_y[i].item())} | "
-                f"확률={prediction[i].item():.4f} | "
-                f"예측={int(predicted_class[i].item())}"
-            )
-            
 test_loss /= len(test_loader)
 test_accuracy = correct / total
 
 print()
 print("==== 테스트 결과 ====")
-print(f"Test Loss     : {test_loss:.4f}")
-print(f"Test Accuracy : {test_accuracy:.4f}")
+print(f"테스트 손실   : {test_loss:.4f}")
+print(f"테스트 정확도 : {test_accuracy:.4f}")

@@ -1,2 +1,8 @@
 torch
 scikit-learn
+torchvision
+
+# PyTorch: 2.11.0+cu128
+# torchvision 0.26.0
+# CUDA: 12.8
+# GPU 사용 가능: True
