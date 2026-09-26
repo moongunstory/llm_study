@@ -20,7 +20,6 @@ test_data = datasets.MNIST(
 )
 
 # 2. 데이터 로더
-
 train_loader = DataLoader(
     train_data,
     batch_size=64,
@@ -118,4 +117,7 @@ x, y = test_data[0]
 
 prediction = model(x.unsqueeze(0))
 
-predicted_class = prediction.argmax
+predicted_class = prediction.argmax(dim=1).item()
+
+print(f"실제 숫자 : {y}")
+print(f"예측 숫자 : {predicted_class}") 
