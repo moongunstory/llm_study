@@ -206,7 +206,7 @@ finetuned_model = LanguageModel(
 finetuned_model.load_state_dict(
     torch.load(
         "base_model.pth",
-        weigths_only=True
+        weights_only=True
     )
 )
 
@@ -218,7 +218,7 @@ optimizer = torch.optim.Adam(
 
 finetuning_epochs = 200
 
-for eopch in range(finetuning_epochs):
+for epoch in range(finetuning_epochs):
     total_loss = 0
 
     for x, y in finetuning_dataloader:
@@ -292,7 +292,7 @@ class LoRALinear(nn.Module):
         self.original_layer = original_layer
         self.rank = rank
         self.alpha = alpha
-        input_dim = original_layer.in_featuers
+        input_dim = original_layer.in_features
         output_dim = original_layer.out_features
 
         # 기존 가중치는 고정
@@ -336,3 +336,140 @@ class LoRALinear(nn.Module):
             original_output
             + lora_output
         )
+
+# 15. LoRA 모델 
+class LoRALanguageModel(nn.Module):
+    
+    def __init__(
+        self,
+        base_model,
+        rank=4,
+        alpha=1.0
+    ):
+        super().__init__()
+
+        self.embedding = base_model.embedding
+        self.linear1 = base_model.linear1
+        self.activation = base_model.activation
+        self.linear2 = LoRALinear(
+            base_model.linear2,
+            rank=rank,
+            alpha=alpha
+        )
+
+        # 임베딩도 고정
+        for parameter in self.embedding.parameters():
+            parameter.requires_grad = False
+
+        # 리니어 1도 고정
+        for parameter in self.linear1.parameters():
+            parameter.requires_grad = False
+
+    def forward(self, x):
+        x = self.embedding(x)
+        x = self.linear1(x)
+        x = self.activation(x)
+        logits = self.linear2(x)
+        return logits
+
+# 16. LoRA 모델 생성
+lora_model = LoRALanguageModel(
+    base_model,
+    rank=4,
+    alpha=1.0
+)
+
+# 17. 학습 가능한 파라미터 확인
+print("\n학습 가능 파라미터: ")
+
+total_parameters = 0
+trainable_parameters = 0
+
+for name, parameter in lora_model.named_parameters():
+
+    parameter_count = parameter.numel()
+    total_parameters += parameter_count
+
+    if parameter.requires_grad:
+
+        trainable_parameters += parameter_count
+        print(name, parameter.shape, parameter_count)
+
+print("\n전체 파라미터 수: ", total_parameters)
+print("학습 가능한 파라미터 수: ", trainable_parameters)
+
+# 18. 로라 파인-튜닝
+optimizer = torch.optim.Adam(
+    filter(
+        lambda parameter: parameter.requires_grad,
+        lora_model.parameters()
+    ),
+    lr=0.001
+)
+
+lora_epochs = 200
+
+for epoch in range(lora_epochs):
+    total_loss = 0
+    for x, y in finetuning_dataloader:
+        optimizer.zero_grad()
+        logits = lora_model(x)
+        loss = loss_fn(logits, y)
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item()
+
+    if (epoch + 1) % 50 == 0:
+        average_loss = (
+            total_loss / len(finetuning_dataloader)
+        )
+
+        print(
+            f"로라 에포크={epoch + 1},"
+            f"손실={average_loss:.6f}"
+        )
+
+# 19. 로라 예측
+print("\n로라 예측: ")
+print("hello ->", predict(lora_model, "hello"))
+
+# 20. 로라 어댑터 저장
+lora_state_dict = {}
+
+for name, parameter in lora_model.named_parameters():
+
+    if parameter.requires_grad:
+
+        lora_state_dict[name] = (parameter.detach().cpu())
+
+torch.save(lora_state_dict, "lora_adapter.pth")
+print("\n로라 어댑터 저장.")
+
+# 21. 로라 어댑터 확인
+loaded_adapter = torch.load("lora_adapter.pth", weights_only=True)
+
+print("\n저장된 로라 파라미터: ")
+
+for name, parameter in loaded_adapter.items():
+
+    print(name, parameter.shape)
+
+# 파인 튜닝 방식 비교
+print("\n==============================")
+print("Fine-tuning comparison")
+print("==============================")
+
+print(  "Full Fine-tuning:")
+
+print("모델의 모든 파라미터를 업데이트")
+
+
+print("\nLoRA:")
+
+print("기존 모델 파라미터는 고정")
+
+print("작은 LoRA 행렬만 업데이트")
+
+print("\nLoRA trainable parameters:", trainable_parameters)
+
+print("Total parameters:", total_parameters)

@@ -1,0 +1,1019 @@
+import torch
+from torch import nn
+
+
+# ============================================================
+# 1. Vocabulary
+# ============================================================
+
+vocab = {
+    "<unk>": 0,
+    "hello": 1,
+    "world": 2,
+    "machine": 3,
+    "learning": 4,
+    "deep": 5,
+    "is": 6,
+    "powerful": 7,
+    "friend": 8,
+}
+
+
+token_to_id = vocab
+
+id_to_token = {
+    token_id: token
+    for token, token_id in token_to_id.items()
+}
+
+
+vocab_size = len(vocab)
+
+
+# ============================================================
+# 2. Language Model
+# ============================================================
+
+class LanguageModel(nn.Module):
+
+    def __init__(
+        self,
+        vocab_size,
+        embedding_dim,
+        hidden_dim
+    ):
+        super().__init__()
+
+        self.embedding = nn.Embedding(
+            vocab_size,
+            embedding_dim
+        )
+
+        self.rnn = nn.RNN(
+            input_size=embedding_dim,
+            hidden_size=hidden_dim,
+            batch_first=True
+        )
+
+        self.linear = nn.Linear(
+            hidden_dim,
+            vocab_size
+        )
+
+    def forward(self, x):
+
+        x = self.embedding(x)
+
+        output, hidden = self.rnn(x)
+
+        logits = self.linear(output)
+
+        return logits
+
+
+# ============================================================
+# 3. 모델 생성
+# ============================================================
+
+embedding_dim = 32
+
+hidden_dim = 64
+
+
+model = LanguageModel(
+    vocab_size=vocab_size,
+    embedding_dim=embedding_dim,
+    hidden_dim=hidden_dim
+)
+
+
+# ============================================================
+# 4. 학습된 모델 불러오기
+# ============================================================
+
+model_path = "language_model.pth"
+
+try:
+
+    model.load_state_dict(
+        torch.load(
+            model_path,
+            weights_only=True
+        )
+    )
+
+    print("학습된 모델을 불러왔습니다.")
+
+except FileNotFoundError:
+
+    print(
+        "language_model.pth 파일이 없습니다."
+    )
+
+    print(
+        "현재 모델의 랜덤 가중치를 사용합니다."
+    )
+
+
+# ============================================================
+# 5. Inference 모드
+# ============================================================
+
+model.eval()
+
+
+# ============================================================
+# 6. Tokenize
+# ============================================================
+
+def tokenize(text):
+
+    return text.lower().split()
+
+
+# ============================================================
+# 7. Encode
+# ============================================================
+
+def encode(tokens):
+
+    unk_id = token_to_id["<unk>"]
+
+    return [
+        token_to_id.get(
+            token,
+            unk_id
+        )
+        for token in tokens
+    ]
+
+
+# ============================================================
+# 8. Decode
+# ============================================================
+
+def decode(ids):
+
+    return [
+        id_to_token.get(
+            token_id,
+            "<unk>"
+        )
+        for token_id in ids
+    ]
+
+
+# ============================================================
+# 9. 기본 다음 Token 예측
+# ============================================================
+
+def predict_next_token(
+    model,
+    text
+):
+
+    tokens = tokenize(text)
+
+    input_ids = encode(tokens)
+
+    x = torch.tensor(
+        [input_ids],
+        dtype=torch.long
+    )
+
+
+    # --------------------------------------------------------
+    # Forward
+    # --------------------------------------------------------
+
+    logits = model(x)
+
+
+    # 마지막 위치의 logits
+    last_logits = logits[:, -1, :]
+
+
+    # --------------------------------------------------------
+    # 가장 높은 확률의 Token 선택
+    # --------------------------------------------------------
+
+    predicted_id = torch.argmax(
+        last_logits,
+        dim=-1
+    ).item()
+
+
+    return id_to_token[predicted_id]
+
+
+# ============================================================
+# 10. 다음 Token 예측
+# ============================================================
+
+prompt = "hello"
+
+next_token = predict_next_token(
+    model,
+    prompt
+)
+
+
+print("\nNext Token:")
+
+print(
+    prompt,
+    "->",
+    next_token
+)
+
+
+# ============================================================
+# 11. Softmax
+# ============================================================
+
+def get_probabilities(
+    model,
+    text
+):
+
+    tokens = tokenize(text)
+
+    input_ids = encode(tokens)
+
+    x = torch.tensor(
+        [input_ids],
+        dtype=torch.long
+    )
+
+
+    logits = model(x)
+
+    last_logits = logits[:, -1, :]
+
+
+    probabilities = torch.softmax(
+        last_logits,
+        dim=-1
+    )
+
+
+    return probabilities
+
+
+probabilities = get_probabilities(
+    model,
+    "hello"
+)
+
+
+print("\nToken probabilities:")
+
+
+for token_id, probability in enumerate(
+    probabilities[0]
+):
+
+    token = id_to_token[token_id]
+
+    print(
+        f"{token:10s} "
+        f"{probability.item():.6f}"
+    )
+
+
+# ============================================================
+# 12. Top-K Sampling
+# ============================================================
+
+def top_k_sampling(
+    model,
+    text,
+    k=3
+):
+
+    probabilities = get_probabilities(
+        model,
+        text
+    )
+
+
+    # --------------------------------------------------------
+    # 가장 확률이 높은 K개 Token
+    # --------------------------------------------------------
+
+    top_probabilities, top_ids = torch.topk(
+        probabilities,
+        k=k,
+        dim=-1
+    )
+
+
+    # --------------------------------------------------------
+    # K개 Token의 확률을 다시 정규화
+    # --------------------------------------------------------
+
+    top_probabilities = (
+        top_probabilities
+        / top_probabilities.sum(
+            dim=-1,
+            keepdim=True
+        )
+    )
+
+
+    # --------------------------------------------------------
+    # 확률에 따라 하나 선택
+    # --------------------------------------------------------
+
+    selected_index = torch.multinomial(
+        top_probabilities,
+        num_samples=1
+    )
+
+
+    selected_id = top_ids[
+        0,
+        selected_index[0, 0]
+    ].item()
+
+
+    return id_to_token[selected_id]
+
+
+# ============================================================
+# 13. Temperature
+# ============================================================
+
+def get_temperature_probabilities(
+    model,
+    text,
+    temperature=1.0
+):
+
+    tokens = tokenize(text)
+
+    input_ids = encode(tokens)
+
+    x = torch.tensor(
+        [input_ids],
+        dtype=torch.long
+    )
+
+
+    logits = model(x)
+
+    last_logits = logits[:, -1, :]
+
+
+    # --------------------------------------------------------
+    # Temperature 적용
+    # --------------------------------------------------------
+
+    scaled_logits = (
+        last_logits
+        / temperature
+    )
+
+
+    probabilities = torch.softmax(
+        scaled_logits,
+        dim=-1
+    )
+
+
+    return probabilities
+
+
+# ============================================================
+# 14. Temperature를 사용한 Sampling
+# ============================================================
+
+def temperature_sampling(
+    model,
+    text,
+    temperature=1.0
+):
+
+    probabilities = get_temperature_probabilities(
+        model,
+        text,
+        temperature
+    )
+
+
+    selected_id = torch.multinomial(
+        probabilities,
+        num_samples=1
+    ).item()
+
+
+    return id_to_token[selected_id]
+
+
+# ============================================================
+# 15. Text Generation
+# ============================================================
+
+def generate(
+    model,
+    prompt,
+    max_new_tokens=10,
+    temperature=1.0,
+    top_k=None
+):
+
+    model.eval()
+
+
+    # --------------------------------------------------------
+    # Prompt Token
+    # --------------------------------------------------------
+
+    generated_tokens = tokenize(prompt)
+
+
+    # --------------------------------------------------------
+    # Token 생성
+    # --------------------------------------------------------
+
+    for _ in range(max_new_tokens):
+
+        input_ids = encode(
+            generated_tokens
+        )
+
+
+        x = torch.tensor(
+            [input_ids],
+            dtype=torch.long
+        )
+
+
+        # ----------------------------------------------------
+        # Forward
+        # ----------------------------------------------------
+
+        logits = model(x)
+
+
+        # 마지막 위치의 logits
+        next_token_logits = logits[
+            :, -1, :
+        ]
+
+
+        # ----------------------------------------------------
+        # Temperature
+        # ----------------------------------------------------
+
+        next_token_logits = (
+            next_token_logits
+            / temperature
+        )
+
+
+        # ----------------------------------------------------
+        # Top-K
+        # ----------------------------------------------------
+
+        if top_k is not None:
+
+            values, indices = torch.topk(
+                next_token_logits,
+                k=top_k
+            )
+
+
+            filtered_logits = torch.full_like(
+                next_token_logits,
+                float("-inf")
+            )
+
+
+            filtered_logits.scatter_(
+                1,
+                indices,
+                values
+            )
+
+
+            next_token_logits = (
+                filtered_logits
+            )
+
+
+        # ----------------------------------------------------
+        # 확률
+        # ----------------------------------------------------
+
+        probabilities = torch.softmax(
+            next_token_logits,
+            dim=-1
+        )
+
+
+        # ----------------------------------------------------
+        # Sampling
+        # ----------------------------------------------------
+
+        next_token_id = torch.multinomial(
+            probabilities,
+            num_samples=1
+        ).item()
+
+
+        next_token = id_to_token[
+            next_token_id
+        ]
+
+
+        generated_tokens.append(
+            next_token
+        )
+
+
+    return generated_tokens
+
+
+# ============================================================
+# 16. Greedy Generation
+# ============================================================
+
+def generate_greedy(
+    model,
+    prompt,
+    max_new_tokens=10
+):
+
+    model.eval()
+
+    generated_tokens = tokenize(prompt)
+
+
+    for _ in range(max_new_tokens):
+
+        input_ids = encode(
+            generated_tokens
+        )
+
+
+        x = torch.tensor(
+            [input_ids],
+            dtype=torch.long
+        )
+
+
+        logits = model(x)
+
+
+        next_token_logits = logits[
+            :, -1, :
+        ]
+
+
+        next_token_id = torch.argmax(
+            next_token_logits,
+            dim=-1
+        ).item()
+
+
+        next_token = id_to_token[
+            next_token_id
+        ]
+
+
+        generated_tokens.append(
+            next_token
+        )
+
+
+    return generated_tokens
+
+
+# ============================================================
+# 17. Greedy 생성 테스트
+# ============================================================
+
+prompt = "hello"
+
+
+generated = generate_greedy(
+    model,
+    prompt,
+    max_new_tokens=5
+)
+
+
+print("\nGreedy Generation:")
+
+print(
+    " ".join(generated)
+)
+
+
+# ============================================================
+# 18. Temperature Generation 테스트
+# ============================================================
+
+generated = generate(
+    model,
+    "hello",
+    max_new_tokens=5,
+    temperature=1.0
+)
+
+
+print("\nTemperature Generation:")
+
+print(
+    " ".join(generated)
+)
+
+
+# ============================================================
+# 19. 낮은 Temperature
+# ============================================================
+
+generated = generate(
+    model,
+    "hello",
+    max_new_tokens=5,
+    temperature=0.5
+)
+
+
+print("\nLow Temperature:")
+
+print(
+    " ".join(generated)
+)
+
+
+# ============================================================
+# 20. 높은 Temperature
+# ============================================================
+
+generated = generate(
+    model,
+    "hello",
+    max_new_tokens=5,
+    temperature=2.0
+)
+
+
+print("\nHigh Temperature:")
+
+print(
+    " ".join(generated)
+)
+
+
+# ============================================================
+# 21. Top-K Generation
+# ============================================================
+
+generated = generate(
+    model,
+    "hello",
+    max_new_tokens=5,
+    temperature=1.0,
+    top_k=3
+)
+
+
+print("\nTop-K Generation:")
+
+print(
+    " ".join(generated)
+)
+
+
+# ============================================================
+# 22. Inference 함수
+# ============================================================
+
+def inference(
+    prompt,
+    max_new_tokens=10,
+    temperature=1.0,
+    top_k=3
+):
+
+    model.eval()
+
+
+    generated_tokens = tokenize(
+        prompt
+    )
+
+
+    for _ in range(max_new_tokens):
+
+        input_ids = encode(
+            generated_tokens
+        )
+
+
+        x = torch.tensor(
+            [input_ids],
+            dtype=torch.long
+        )
+
+
+        # ----------------------------------------------------
+        # Forward
+        # ----------------------------------------------------
+
+        logits = model(x)
+
+
+        # ----------------------------------------------------
+        # 마지막 Token의 logits
+        # ----------------------------------------------------
+
+        logits = logits[:, -1, :]
+
+
+        # ----------------------------------------------------
+        # Temperature
+        # ----------------------------------------------------
+
+        logits = (
+            logits
+            / temperature
+        )
+
+
+        # ----------------------------------------------------
+        # Top-K
+        # ----------------------------------------------------
+
+        if top_k is not None:
+
+            top_values, top_indices = torch.topk(
+                logits,
+                k=top_k
+            )
+
+
+            filtered_logits = torch.full_like(
+                logits,
+                float("-inf")
+            )
+
+
+            filtered_logits.scatter_(
+                1,
+                top_indices,
+                top_values
+            )
+
+
+            logits = filtered_logits
+
+
+        # ----------------------------------------------------
+        # Softmax
+        # ----------------------------------------------------
+
+        probabilities = torch.softmax(
+            logits,
+            dim=-1
+        )
+
+
+        # ----------------------------------------------------
+        # Sampling
+        # ----------------------------------------------------
+
+        next_token_id = torch.multinomial(
+            probabilities,
+            num_samples=1
+        ).item()
+
+
+        next_token = id_to_token[
+            next_token_id
+        ]
+
+
+        generated_tokens.append(
+            next_token
+        )
+
+
+    return " ".join(
+        generated_tokens
+    )
+
+
+# ============================================================
+# 23. 최종 Inference
+# ============================================================
+
+print("\n==============================")
+print("LLM Inference")
+print("==============================")
+
+
+prompt = "hello"
+
+
+result = inference(
+    prompt=prompt,
+    max_new_tokens=10,
+    temperature=0.8,
+    top_k=3
+)
+
+
+print("\nPrompt:")
+
+print(prompt)
+
+
+print("\nGenerated:")
+
+print(result)
+
+
+# ============================================================
+# 24. 여러 Prompt 테스트
+# ============================================================
+
+prompts = [
+    "hello",
+    "machine",
+    "deep",
+    "learning",
+]
+
+
+print("\n==============================")
+print("Multiple Prompts")
+print("==============================")
+
+
+for prompt in prompts:
+
+    result = inference(
+        prompt=prompt,
+        max_new_tokens=5,
+        temperature=0.8,
+        top_k=3
+    )
+
+
+    print(
+        f"\nPrompt: {prompt}"
+    )
+
+    print(
+        f"Output: {result}"
+    )
+
+
+# ============================================================
+# 25. CPU / GPU Device
+# ============================================================
+
+device = torch.device(
+    "cuda"
+    if torch.cuda.is_available()
+    else "cpu"
+)
+
+
+model = model.to(device)
+
+
+print("\nDevice:")
+
+print(device)
+
+
+# ============================================================
+# 26. Device를 사용하는 Inference
+# ============================================================
+
+def inference_with_device(
+    model,
+    prompt,
+    max_new_tokens=10,
+    temperature=1.0,
+    top_k=3
+):
+
+    model.eval()
+
+    generated_tokens = tokenize(
+        prompt
+    )
+
+
+    for _ in range(max_new_tokens):
+
+        input_ids = encode(
+            generated_tokens
+        )
+
+
+        x = torch.tensor(
+            [input_ids],
+            dtype=torch.long,
+            device=device
+        )
+
+
+        logits = model(x)
+
+
+        logits = logits[:, -1, :]
+
+
+        logits = (
+            logits
+            / temperature
+        )
+
+
+        if top_k is not None:
+
+            top_values, top_indices = torch.topk(
+                logits,
+                k=top_k
+            )
+
+
+            filtered_logits = torch.full_like(
+                logits,
+                float("-inf")
+            )
+
+
+            filtered_logits.scatter_(
+                1,
+                top_indices,
+                top_values
+            )
+
+
+            logits = filtered_logits
+
+
+        probabilities = torch.softmax(
+            logits,
+            dim=-1
+        )
+
+
+        next_token_id = torch.multinomial(
+            probabilities,
+            num_samples=1
+        ).item()
+
+
+        next_token = id_to_token[
+            next_token_id
+        ]
+
+
+        generated_tokens.append(
+            next_token
+        )
+
+
+    return " ".join(
+        generated_tokens
+    )
+
+
+# ============================================================
+# 27. 최종 실행
+# ============================================================
+
+print("\n==============================")
+print("Final LLM Inference")
+print("==============================")
+
+
+prompt = "hello"
+
+
+result = inference_with_device(
+    model=model,
+    prompt=prompt,
+    max_new_tokens=10,
+    temperature=0.8,
+    top_k=3
+)
+
+
+print("\nPrompt:")
+
+print(prompt)
+
+
+print("\nResult:")
+
+print(result)
