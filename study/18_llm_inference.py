@@ -32,7 +32,7 @@ class LanguageModel(nn.Module):
         super().__init__()
 
         self.embedding = nn.Embedding(vocab_size, embedding_dim)
-        self.tnn = nn.RNN(
+        self.rnn = nn.RNN(
             input_size=embedding_dim, 
             hidden_size=hidden_dim, 
             batch_first=True
@@ -63,7 +63,7 @@ model_path = "language_model.pth"
 try:
     model.load_state_dict(
         torch.load(
-            model.path,
+            model_path,
             weights_only=True
         )
     )
@@ -74,7 +74,7 @@ except FileNotFoundError:
     print("현재 모델의 랜덤 가중치를 사용합니다.")
 
 
-# 5. 인터페이스 모드
+# 5. 추론 모드
 model.eval()
 
 # 6. 토크나이즈
@@ -178,7 +178,7 @@ def get_temperature_probabilities(model, text, temperature=1.0):
 
     tokens = tokenize(text)
     input_ids = encode(tokens)
-    x = torch.tensor([input_ids], dtpye=torch.long)
+    x = torch.tensor([input_ids], dtype=torch.long)
     logits = model(x)
     last_logits = logits[:, -1, :]
 
@@ -189,11 +189,11 @@ def get_temperature_probabilities(model, text, temperature=1.0):
     return probabilities
 
 # 14. 온도를 사용한 샘플링
-def temperatrue_sampling(
+def temperature_sampling(
     model, text, temperature=1.0
 ):
 
-    probabiliteies = get_temperature_probabilities(
+    probabilities = get_temperature_probabilities(
         model,
         text,
         temperature
@@ -236,19 +236,19 @@ def generate(model, prompt, max_new_tokens=10, temperature=1.0, top_k=None):
                 float("-inf")
             )
             filtered_logits.scatter(1, indices, values)
-            netx_token_logits = (filtered_logits)
+            next_token_logits = (filtered_logits)
 
-            # 확률
-            probabilities = torch.softmax(next_token_logits, dim=-1)
+        # 확률
+        probabilities = torch.softmax(next_token_logits, dim=-1)
 
-            # 샘플링
-            next_token_id = torch.multinomial(
-                probabilities,
-                num_samples=1
-            ).item()
+        # 샘플링
+        next_token_id = torch.multinomial(
+            probabilities,
+            num_samples=1
+        ).item()
 
-            next_token = id_to_token[next_token_id]
-            generated_tokens.append(next_token)
+        next_token = id_to_token[next_token_id]
+        generated_tokens.append(next_token)
 
         return generated_tokens
 
@@ -284,19 +284,19 @@ print("\n탐욕적 생성: ")
 print(" ".join(generated))
 
 # 18. 온도 생성 테스트
-generated = generate(model, "hello", max_new_tokens=5, temperateure=1.0)
+generated = generate(model, "hello", max_new_tokens=5, temperature=1.0)
 
 print("\n온도 생성: ")
 print(" ".join(generated))
 
 # 19. 낮은 온도
-generated = generate(model, "helo", max_new_tokens=5, temperatrue=0.5)
+generated = generate(model, "hello", max_new_tokens=5, temperature=0.5)
 
 print("\n낮은 온도: ")
 print(" ".join(generated))
 
 # 20. 높은 온도
-generated = generate(model, "hello", max_new_tokens=5, temperatrue=2.0)
+generated = generate(model, "hello", max_new_tokens=5, temperature=2.0)
 
 print("\n높은 온도: ")
 print(" ".join(generated))
@@ -314,4 +314,157 @@ print("\nTop-K 생성: ")
 print(" ".join(generated))
 
 # 22. Inference 함수
-def inference
+def inference(model, prompt, max_new_tokens=10, temperature=1.0, top_k=3):
+    
+    model.eval()
+
+    generated_tokens = tokenize(prompt)
+
+    for _ in range(max_new_tokens):
+
+        input_ids = encode(generated_tokens)
+        x = torch.tensor([input_ids], dtype=torch.long)
+
+        # forward
+        logits = model(x)
+        logits = logits[:, -1, :]
+
+        # 온도
+        logits = (logits / temperature)
+
+        # Top-K
+        if top_k is not None:
+
+            top_values, top_indices = torch.topk(logits, k=top_k)
+            filtered_logits = torch.full_like(
+                logits,
+                float("-inf")
+            )
+            filtered_logits.scatter_(
+                1,
+                top_indices,
+                top_values
+            )
+            logits = filtered_logits
+
+        # Softmax
+        probabilities = torch.softmax(logits, dim=-1)
+
+        # Sampling
+        next_token_id = torch.multinomial(
+            probabilities,
+            num_samples=1
+        ).item()
+
+        next_token = id_to_token[next_token_id]
+        generated_tokens.append(next_token)
+
+    return " ".join(generated_tokens)
+
+# 23. 최종 Inference(추론)
+print("\n==============================")
+print("LLM Inference")
+print("==============================")
+
+prompt = "hello"
+
+result = inference(
+    model=model,
+    prompt=prompt,
+    max_new_tokens=10,
+    temperature=0.8,
+    top_k=3
+)
+
+print("\nPrompt:")
+print(prompt)
+
+print("\nGenerated:")
+print(result)
+
+# 24. 여러 프롬프트 테스트
+
+prompts = [
+    "hello",
+    "machine",
+    "deep",
+    "learning",
+]
+
+print("\n==============================")
+print("Multiple Prompts")
+print("==============================")
+
+for prompt in prompts:
+
+    result = inference(
+        prompt=prompt,
+        max_new_tokens=5,
+        temperature=0.8,
+        top_k=3
+    )
+
+    print(f"\n프롬프트: {prompt}")
+    print(f"\n결과: {result}")
+
+# 25. CPU / GPU Device
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+model = model.to(device)
+
+print("\n디바이스: ")
+print(device)
+
+# 26. Device를 사용하는 추론
+def inference_with_device(
+    model,
+    prompt,
+    max_new_tokens=10,
+    temperature=1.0,
+    top_k=3
+):
+    model.eval()
+
+    generated_tokens = tokenize(prompt)
+
+    for _ in range(max_new_tokens):
+
+        input_ids = encode(generated_tokens)
+        x = torch.tensor([input_ids], dtype=torch.long, device=device)
+        logits = model(x)
+        logits = logits[:, -1, :]
+        logits = (logits / temperature)
+
+        if top_k is not None:
+
+            top_values, top_indices = torch.topk(logits, k=top_k)
+            filtered_logits = torch.full_like(logits, float("-inf"))
+            filtered_logits.scatter_(1, top_indices, top_values)
+            logits = filtered_logits
+
+        probabilities = torch.softmax(logits,dim=-1)
+        next_token_id = torch.multinomial(probabilities, num_samples=1).item()
+        next_token = id_to_token[next_token_id]
+        generated_tokens.append(next_token)
+
+    return " ".join(generated_tokens)
+
+# 27. 최종 실행
+print("\n==============================")
+print("Final LLM Inference")
+print("==============================")
+
+prompt = "hello"
+
+result = inference_with_device(
+    model=model,
+    prompt=prompt,
+    max_new_tokens=10,
+    temperature=0.8,
+    top_k=3
+)
+
+print("\n프롬프트: ")
+print(prompt)
+print("\n결과: ")
+print(result)
