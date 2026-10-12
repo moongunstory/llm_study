@@ -235,7 +235,7 @@ def generate(model, prompt, max_new_tokens=10, temperature=1.0, top_k=None):
                 next_token_logits,
                 float("-inf")
             )
-            filtered_logits.scatter(1, indices, values)
+            filtered_logits.scatter_(1, indices, values)
             next_token_logits = (filtered_logits)
 
         # 확률
@@ -250,7 +250,7 @@ def generate(model, prompt, max_new_tokens=10, temperature=1.0, top_k=None):
         next_token = id_to_token[next_token_id]
         generated_tokens.append(next_token)
 
-        return generated_tokens
+    return generated_tokens
 
 # 16. 탐욕적 생성
 def generate_greedy(model, prompt, max_new_tokens=10):
@@ -398,6 +398,7 @@ print("==============================")
 for prompt in prompts:
 
     result = inference(
+        model=model,
         prompt=prompt,
         max_new_tokens=5,
         temperature=0.8,
